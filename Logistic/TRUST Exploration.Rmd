@@ -1,0 +1,141 @@
+---
+title: "TRUST Exploration"
+author: "Andy Ortiz - eao7r"
+date: "12/9/2021"
+output: 
+  html_document: 
+    highlight: zenburn
+    theme: flatly
+---
+```{r, include=FALSE}
+knitr::purl("TRUST Exploration.Rmd", "TRUST Exploration.R", documentation = 2)
+knitr::opts_chunk$set(fig.width=4, fig.height=3) 
+```
+```{r, message=FALSE}
+library(tidyverse)
+library(sjlabelled)
+library(ROCR)
+```
+
+```{r}
+survey <- haven::read_sav("cleaned_extra.sav")
+# survey <- haven::read_sav("dem_only.sav")
+
+# remove SOCTRUST columns for processing and later re-append
+surveyA <- subset (survey, select = -c(SOCASSIGN_W32,SOCTRUST_W32,SOCTRUST2_W32,SOCTRUST3_W32,SOCTRUST4_W32,SOCTRUST5_W32))
+
+# select 2-level SOCTRUST columns we want to keep and process
+surveyB <- subset (survey, select = c(SOCTRUST_W32,SOCTRUST2_W32,SOCTRUST5_W32))
+
+# keep 4-level SOCTRUST column for condensing
+surveyC <- subset (survey, select = SOCTRUST4_W32)
+
+# condense 1,2 to 1, and 3,4 to 2 in SOCTRUST4
+surveyC[surveyC==2] <- 1 
+surveyC[surveyC==3] <- 2
+surveyC[surveyC==4] <- 2
+
+surveyBC <- cbind(surveyB,surveyC)
+
+# collapse all columns to one
+surveyBC$TRUST <-apply(surveyBC, 1, function(x) paste(x[!is.na(x)]))
+
+# fix class
+TRUST <- as.numeric(surveyBC$TRUST)
+
+# put it back together
+surveyD <- cbind(surveyA,TRUST)
+
+surveyD <- surveyD %>%
+  mutate(across(!contains("THERM"), ~ replace(.x, .x==99, NA))) %>%
+  mutate(across(contains("THERM"), ~ replace(.x, .x==999, NA))) %>%
+  mutate(across(!contains("THERM"), to_factor))
+
+surveyD <- surveyD[complete.cases(surveyD),]
+
+```
+```{r}
+
+set.seed(1)
+sample<-sample.int(nrow(surveyD), floor(.80*nrow(surveyD)), replace = F)
+train<-surveyD[sample, ]
+test<-surveyD[-sample, ]
+result<-glm(TRUST ~ SATLIFEA_W32+SATLIFEB_W32+SATLIFEC_W32+SATLIFEE_W32, family = "binomial", data=train)
+summary(result)
+
+##predicted chd rate for test data based on training data
+preds<-predict(result,newdata=test, type="response")
+
+##produce the numbers associated with classification table
+rates<-prediction(preds, test$TRUST)
+
+##store the true positive and false postive rates
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+
+##plot ROC curve and overlay the diagonal line for random guessing
+plot(roc_result, main="ROC Curve for TRUST")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+##compute the AUC
+auc<-performance(rates, measure = "auc")
+auc@y.values
+
+##confusion matrix. Actual values in the rows, predicted classification in cols
+table(test$TRUST, preds>0.5)
+mytab <- table(test$TRUST, preds>0.4)
+
+TP <- mytab[2,2]
+TN <- mytab[1,1]
+FP <- mytab[1,2]
+FN <- mytab[2,1]
+Accuracy <- (TP + TN) / (TP+TN+FP+FN)  
+print(paste("Accuracy", Accuracy))
+
+print(paste("False Positive Rate:", FP/(TN+FP)))
+print(paste("False Negative Rate:", FN/(FN+TP)))
+table(train$TRUST)
+table(test$TRUST)
+```
+```{r}
+library(ROCR)
+set.seed(1)
+sample<-sample.int(nrow(surveyD), floor(.80*nrow(surveyD)), replace = F)
+train<-surveyD[sample, ]
+test<-surveyD[-sample, ]
+result<-glm(TRUST ~ SATLIFEC_W32+SATLIFEE_W32, family = "binomial", data=train)
+summary(result)
+
+##predicted chd rate for test data based on training data
+preds<-predict(result,newdata=test, type="response")
+
+##produce the numbers associated with classification table
+rates<-prediction(preds, test$TRUST)
+
+##store the true positive and false postive rates
+roc_result<-performance(rates,measure="tpr", x.measure="fpr")
+
+##plot ROC curve and overlay the diagonal line for random guessing
+plot(roc_result, main="ROC Curve for TRUST")
+lines(x = c(0,1), y = c(0,1), col="red")
+
+##compute the AUC
+auc<-performance(rates, measure = "auc")
+auc@y.values
+
+##confusion matrix. Actual values in the rows, predicted classification in cols
+table(test$TRUST, preds>0.5)
+mytab <- table(test$TRUST, preds>0.5)
+
+TP <- mytab[2,2]
+TN <- mytab[1,1]
+FP <- mytab[1,2]
+FN <- mytab[2,1]
+Accuracy <- (TP + TN) / (TP+TN+FP+FN)  
+print(paste("Accuracy", Accuracy))
+
+print(paste("False Positive Rate:", FP/(TN+FP)))
+print(paste("False Negative Rate:", FN/(FN+TP)))
+table(train$TRUST)
+table(test$TRUST)
+```
+
